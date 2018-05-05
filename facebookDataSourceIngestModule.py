@@ -42,7 +42,7 @@ from org.sleuthkit.datamodel import BlackboardArtifact
 from org.sleuthkit.datamodel import BlackboardAttribute
 from org.sleuthkit.autopsy.ingest import IngestModule
 from org.sleuthkit.autopsy.ingest.IngestModule import IngestModuleException
-from org.sleuthkit.autopsy.ingest import DataSourceIngestModule
+from org.sleuthkit.autopsy.ingest import DBIngestModule
 from org.sleuthkit.autopsy.ingest import FileIngestModule
 from org.sleuthkit.autopsy.ingest import IngestModuleFactoryAdapter
 from org.sleuthkit.autopsy.ingest import IngestMessage
@@ -57,10 +57,10 @@ from org.sleuthkit.autopsy.casemodule.services import Blackboard
 # Factory that defines the name and details of the module and allows Autopsy
 # to create instances of the modules that will do the analysis.
 # TODO: Rename this to something more specific. Search and replace for it because it is used a few times
-class SampleJythonDataSourceIngestModuleFactory(IngestModuleFactoryAdapter):
+class FacebookDBIngestModuleFactory(IngestModuleFactoryAdapter):
 
     # TODO: give it a unique name.  Will be shown in module list, logs, etc.
-    moduleName = "Sample Data Source Module"
+    moduleName = "Facebook Data Source Module"
 
     def getModuleDisplayName(self):
         return self.moduleName
@@ -72,19 +72,19 @@ class SampleJythonDataSourceIngestModuleFactory(IngestModuleFactoryAdapter):
     def getModuleVersionNumber(self):
         return "1.0"
 
-    def isDataSourceIngestModuleFactory(self):
+    def isDBIngestModuleFactory(self):
         return True
 
-    def createDataSourceIngestModule(self, ingestOptions):
+    def createDBIngestModule(self, ingestOptions):
         # TODO: Change the class name to the name you'll make below
-        return SampleJythonDataSourceIngestModule()
+        return FacebookDBIngestModule()
 
 
 # Data Source-level ingest module.  One gets created per data source.
 # TODO: Rename this to something more specific. Could just remove "Factory" from above name.
-class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
+class FacebookDBIngestModule(DBIngestModule):
 
-    _logger = Logger.getLogger(SampleJythonDataSourceIngestModuleFactory.moduleName)
+    _logger = Logger.getLogger(FacebookDBIngestModuleFactory.moduleName)
 
     def log(self, level, msg):
         self._logger.logp(level, self.__class__.__name__, inspect.stack()[1][3], msg)
@@ -103,12 +103,12 @@ class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
         self.context = context
 
     # Where the analysis is done.
-    # The 'dataSource' object being passed in is of type org.sleuthkit.datamodel.Content.
+    # The 'DB' object being passed in is of type org.sleuthkit.datamodel.Content.
     # See: http://www.sleuthkit.org/sleuthkit/docs/jni-docs/4.4/interfaceorg_1_1sleuthkit_1_1datamodel_1_1_content.html
-    # 'progressBar' is of type org.sleuthkit.autopsy.ingest.DataSourceIngestModuleProgress
+    # 'progressBar' is of type org.sleuthkit.autopsy.ingest.DBIngestModuleProgress
     # See: http://sleuthkit.org/autopsy/docs/api-docs/4.4/classorg_1_1sleuthkit_1_1autopsy_1_1ingest_1_1_data_source_ingest_module_progress.html
     # TODO: Add your analysis code in here.
-    def process(self, dataSource, progressBar):
+    def process(self, DB, progressBar):
 
         # we don't know how much work there is yet
         progressBar.switchToIndeterminate()
@@ -121,7 +121,7 @@ class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
         # in the name and then count and read them
         # FileManager API: http://sleuthkit.org/autopsy/docs/api-docs/4.4/classorg_1_1sleuthkit_1_1autopsy_1_1casemodule_1_1services_1_1_file_manager.html
         fileManager = Case.getCurrentCase().getServices().getFileManager()
-        files = fileManager.findFiles(dataSource, "%test%")
+        files = fileManager.findFiles(DB, "%test%")
 
         numFiles = len(files)
         self.log(Level.INFO, "found " + str(numFiles) + " files")
@@ -139,7 +139,7 @@ class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
             # Make an artifact on the blackboard.  TSK_INTERESTING_FILE_HIT is a generic type of
             # artfiact.  Refer to the developer docs for other examples.
             art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_INTERESTING_FILE_HIT)
-            att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_SET_NAME, SampleJythonDataSourceIngestModuleFactory.moduleName, "Test file")
+            att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_SET_NAME, FacebookDBIngestModuleFactory.moduleName, "Test file")
             art.addAttribute(att)
 
             try:
