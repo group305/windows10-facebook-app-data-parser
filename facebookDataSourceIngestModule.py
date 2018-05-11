@@ -31,10 +31,37 @@
 # Search for TODO for the things that you need to change
 # See http://sleuthkit.org/autopsy/docs/api-docs/4.4/index.html for documentation
 
+# import jarray
+# import inspect
+# from java.lang import System
+# from java.util.logging import Level
+# from org.sleuthkit.datamodel import SleuthkitCase
+# from org.sleuthkit.datamodel import AbstractFile
+# from org.sleuthkit.datamodel import ReadContentInputStream
+# from org.sleuthkit.datamodel import BlackboardArtifact
+# from org.sleuthkit.datamodel import BlackboardAttribute
+# from org.sleuthkit.autopsy.ingest import IngestModule
+# from org.sleuthkit.autopsy.ingest.IngestModule import IngestModuleException
+# from org.sleuthkit.autopsy.ingest import DataSourceIngestModule
+# from org.sleuthkit.autopsy.ingest import FileIngestModule
+# from org.sleuthkit.autopsy.ingest import IngestModuleFactoryAdapter
+# from org.sleuthkit.autopsy.ingest import IngestMessage
+# from org.sleuthkit.autopsy.ingest import IngestServices
+# from org.sleuthkit.autopsy.coreutils import Logger
+# from org.sleuthkit.autopsy.casemodule import Case
+# from org.sleuthkit.autopsy.casemodule.services import Services
+# from org.sleuthkit.autopsy.casemodule.services import FileManager
+# from org.sleuthkit.autopsy.casemodule.services import Blackboard
+
 import jarray
 import inspect
+import os
+from java.lang import Class
 from java.lang import System
+from java.sql  import DriverManager, SQLException
 from java.util.logging import Level
+from java.util import ArrayList
+from java.io import File
 from org.sleuthkit.datamodel import SleuthkitCase
 from org.sleuthkit.datamodel import AbstractFile
 from org.sleuthkit.datamodel import ReadContentInputStream
@@ -43,12 +70,13 @@ from org.sleuthkit.datamodel import BlackboardAttribute
 from org.sleuthkit.autopsy.ingest import IngestModule
 from org.sleuthkit.autopsy.ingest.IngestModule import IngestModuleException
 from org.sleuthkit.autopsy.ingest import DataSourceIngestModule
-from org.sleuthkit.autopsy.ingest import FileIngestModule
 from org.sleuthkit.autopsy.ingest import IngestModuleFactoryAdapter
 from org.sleuthkit.autopsy.ingest import IngestMessage
 from org.sleuthkit.autopsy.ingest import IngestServices
+from org.sleuthkit.autopsy.ingest import ModuleDataEvent
 from org.sleuthkit.autopsy.coreutils import Logger
 from org.sleuthkit.autopsy.casemodule import Case
+from org.sleuthkit.autopsy.datamodel import ContentUtils
 from org.sleuthkit.autopsy.casemodule.services import Services
 from org.sleuthkit.autopsy.casemodule.services import FileManager
 from org.sleuthkit.autopsy.casemodule.services import Blackboard
@@ -57,10 +85,10 @@ from org.sleuthkit.autopsy.casemodule.services import Blackboard
 # Factory that defines the name and details of the module and allows Autopsy
 # to create instances of the modules that will do the analysis.
 # TODO: Rename this to something more specific. Search and replace for it because it is used a few times
-class SampleJythonDataSourceIngestModuleFactory(IngestModuleFactoryAdapter):
+class FacebookDbIngestModuleFactory(IngestModuleFactoryAdapter):
 
     # TODO: give it a unique name.  Will be shown in module list, logs, etc.
-    moduleName = "Facebook Data Source Module"
+    moduleName = "Facebook Data Source Module :)"
 
     def getModuleDisplayName(self):
         return self.moduleName
@@ -77,14 +105,14 @@ class SampleJythonDataSourceIngestModuleFactory(IngestModuleFactoryAdapter):
 
     def createDataSourceIngestModule(self, ingestOptions):
         # TODO: Change the class name to the name you'll make below
-        return SampleJythonDataSourceIngestModule()
+        return FacebookDbIngestModule()
 
 
 # Data Source-level ingest module.  One gets created per data source.
 # TODO: Rename this to something more specific. Could just remove "Factory" from above name.
-class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
+class FacebookDbIngestModule(DataSourceIngestModule):
 
-    _logger = Logger.getLogger(SampleJythonDataSourceIngestModuleFactory.moduleName)
+    _logger = Logger.getLogger(FacebookDbIngestModuleFactory.moduleName)
 
     def log(self, level, msg):
         self._logger.logp(level, self.__class__.__name__, inspect.stack()[1][3], msg)
@@ -116,6 +144,98 @@ class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
         # Use blackboard class to index blackboard artifacts for keyword search
         blackboard = Case.getCurrentCase().getServices().getBlackboard()
 
+        # Find files named contacts.db, regardless of parent path
+        fileManager = Case.getCurrentCase().getServices().getFileManager()
+        files = fileManager.findFiles(dataSource, "fbsyncstore.db")
+
+        numFiles = len(files)
+        progressBar.switchToDeterminate(numFiles)
+        fileCount = 0
+        for file in files:
+
+            # Check if the user pressed cancel while we were busy
+            if self.context.isJobCancelled():
+                return IngestModule.ProcessResult.OK
+
+            self.log(Level.INFO, "Processing file: " + file.getName())
+            fileCount += 1
+
+            # Save the DB locally in the temp folder. use file id as name to reduce collisions
+            lclDbPath = os.path.join(Case.getCurrentCase().getTempDirectory(), str(file.getId()) + ".db")
+            ContentUtils.writeToFile(file, File(lclDbPath))
+                        
+            # Open the DB using JDBC
+            try: 
+                Class.forName("org.sqlite.JDBC").newInstance()
+                dbConn = DriverManager.getConnection("jdbc:sqlite:%s"  % lclDbPath)
+            except SQLException as e:
+                self.log(Level.INFO, "Could not open database file (not SQLite) " + file.getName() + " (" + e.getMessage() + ")")
+                return IngestModule.ProcessResult.OK
+            
+            # Query the contacts table in the database and get all columns. 
+            try:
+                stmt = dbConn.createStatement()
+                resultSet = stmt.executeQuery("SELECT * FROM people LIMIT 10")
+            except SQLException as e:
+                self.log(Level.INFO, "Error querying database for contacts table (" + e.getMessage() + ")")
+                return IngestModule.ProcessResult.OK
+
+            # Cycle through each row and create artifacts
+            while resultSet.next():
+                try: 
+                    name = resultSet.getString("display_name")
+                    #name  = resultSet.getString("name")
+                    #email = resultSet.getString("email")
+                    #phone = resultSet.getString("phone")
+                except SQLException as e:
+                    self.log(Level.INFO, "Error getting values from contacts table (" + e.getMessage() + ")")
+                
+                
+                # Make an artifact on the blackboard, TSK_CONTACT and give it attributes for each of the fields
+                art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_CONTACT)
+                attributes = ArrayList()
+                
+                
+                attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON.getTypeID(), 
+                    FacebookDbIngestModuleFactory.moduleName, name))
+                
+                # attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_EMAIL.getTypeID(), 
+                    # ContactsDbIngestModuleFactory.moduleName, email))
+
+                # attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_PHONE_NUMBER.getTypeID(), 
+                    # ContactsDbIngestModuleFactory.moduleName, phone))
+                
+                art.addAttributes(attributes)
+                try:
+                    # index the artifact for keyword search
+                    blackboard.indexArtifact(art)
+                except Blackboard.BlackboardException as e:
+                    self.log(Level.SEVERE, "Error indexing artifact " + art.getDisplayName())
+                
+            # Fire an event to notify the UI and others that there are new artifacts
+            IngestServices.getInstance().fireModuleDataEvent(
+                ModuleDataEvent(FacebookDbIngestModuleFactory.moduleName, 
+                BlackboardArtifact.ARTIFACT_TYPE.TSK_CONTACT, None))
+                
+            # Clean up
+            stmt.close()
+            dbConn.close()
+            os.remove(lclDbPath)
+
+            
+        # After all databases, post a message to the ingest messages in box.
+        message = IngestMessage.createMessage(IngestMessage.MessageType.DATA,
+            "FacebookDb Analyzer", "Found %d files" % fileCount)
+        IngestServices.getInstance().postMessage(message)
+
+        return IngestModule.ProcessResult.OK
+
+        # we don't know how much work there is yet
+        progressBar.switchToIndeterminate()
+
+        # Use blackboard class to index blackboard artifacts for keyword search
+        blackboard = Case.getCurrentCase().getServices().getBlackboard()
+
         # For our example, we will use FileManager to get all
         # files with the word "test"
         # in the name and then count and read them
@@ -139,7 +259,7 @@ class SampleJythonDataSourceIngestModule(DataSourceIngestModule):
             # Make an artifact on the blackboard.  TSK_INTERESTING_FILE_HIT is a generic type of
             # artfiact.  Refer to the developer docs for other examples.
             art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_INTERESTING_FILE_HIT)
-            att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_SET_NAME, SampleJythonDataSourceIngestModuleFactory.moduleName, "Test file")
+            att = BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_SET_NAME, FacebookDbIngestModuleFactory.moduleName, "Test file")
             art.addAttribute(att)
 
             try:
