@@ -175,7 +175,7 @@ class FacebookDbIngestModule(DataSourceIngestModule):
             # Query the contacts table in the database and get all columns. 
             try:
                 stmt = dbConn.createStatement()
-                resultSet = stmt.executeQuery("SELECT * FROM people LIMIT 10")
+                resultSet = stmt.executeQuery("SELECT * FROM people p ORDER BY communication_rank DESC")
             except SQLException as e:
                 self.log(Level.INFO, "Error querying database for contacts table (" + e.getMessage() + ")")
                 return IngestModule.ProcessResult.OK
@@ -183,8 +183,9 @@ class FacebookDbIngestModule(DataSourceIngestModule):
             # Cycle through each row and create artifacts
             while resultSet.next():
                 try: 
-                    name = resultSet.getString("display_name")
-                    #name  = resultSet.getString("name")
+                    person_id = resultSet.getString("person_id")
+                    display_name = resultSet.getString("display_name")
+                    user_name = resultSet.getString("username")
                     #email = resultSet.getString("email")
                     #phone = resultSet.getString("phone")
                 except SQLException as e:
@@ -194,10 +195,9 @@ class FacebookDbIngestModule(DataSourceIngestModule):
                 # Make an artifact on the blackboard, TSK_CONTACT and give it attributes for each of the fields
                 art = file.newArtifact(BlackboardArtifact.ARTIFACT_TYPE.TSK_CONTACT)
                 attributes = ArrayList()
-                
-                
-                attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON.getTypeID(), 
-                    FacebookDbIngestModuleFactory.moduleName, name))
+                attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID.getTypeID(), FacebookDbIngestModuleFactory.moduleName, person_id))
+                attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON.getTypeID(), FacebookDbIngestModuleFactory.moduleName, display_name))
+                attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_NAME.getTypeID(), FacebookDbIngestModuleFactory.moduleName, user_name))
                 
                 # attributes.add(BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_EMAIL.getTypeID(), 
                     # ContactsDbIngestModuleFactory.moduleName, email))
